@@ -667,3 +667,41 @@ desk-side machine runs in.
 
 It also holds across context length: +47 to +54 % from 431 to 83,078 prompt tokens, so the
 saving is per-step and independent of how much context is already resident.
+
+---
+
+## 2026-09-13 — CORRECTION: the `pread` gather result is not contributable as measured
+
+Two things came to light after the engram gather result was written up.
+
+**1. Upstream added `MADV_RANDOM` on 2026-09-08, and this study never tested against it.**
+Their current `vllm_ple_mmap.py` still uses inline single-threaded `np.memmap` fancy indexing
+for decode-sized batches, but applies `MADV_RANDOM` to the maps by default, with the reasoning:
+"Without MADV_RANDOM the kernel's mmap readahead pulls a window of pages around every faulting
+row and fills the page cache with neighbours that are never used; with it a cold row costs one
+page." The 26-41 ms figure in this study is from maps **without** that advice, so a large part
+of what was attributed to "page faults are slow" may in fact be readahead amplification that
+upstream has already removed.
+
+**2. The 6.7x was a cold-cache number, and the production-typical case is far cheaper.**
+Re-running the same benchmark later the same day, with the table ~10 % resident from live
+traffic rather than ~0 % after a reboot, gives:
+
+```
+memmap fancy, t=16    5.08 ms
+pread, t=8            3.58 ms      -> 1.4x, not 6.7x
+```
+
+And the live engine's own counter on the production lane reports `gather 0.44 ms/op` in steady
+state, with occasional cold bursts at 7.07 ms/op. At 0.44 ms there is essentially nothing to
+win: the gather is not on the critical path in the warm regime that a long-running server
+spends nearly all its time in.
+
+**Status: withdrawn as a recommendation.** The honest claim is narrower — *on a genuinely cold
+region of the table, and without `MADV_RANDOM`, explicit `pread` is several times faster than
+page faulting* — and even that needs re-measuring against upstream's current code with the
+advice applied. Settling it requires dropping the page cache between trials, which needs root
+on this box.
+
+What this does not change: the 20-40 ms cold-gather stalls were real and did appear in the
+profiler's GPU-idle attribution during cold runs. The tail is worth attention; the mean is not.

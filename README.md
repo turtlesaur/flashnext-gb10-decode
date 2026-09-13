@@ -37,8 +37,10 @@ What this repo adds that I have not found elsewhere:
 4. **The gain is single-stream only** — ~50 % at concurrency 1, ~15 % at concurrency 4-8,
    because batching already amortises the output head. Both upstream projects report
    single-request numbers.
-5. **`pread` beats the shipping page-fault gather 6.7x on cold engram rows.** Flash-DGX's own
-   documentation notes the I/O mechanism is not specified; this measures it.
+5. ~~**`pread` beats the shipping page-fault gather 6.7x on cold engram rows.**~~
+   **Withdrawn** — that was measured without `MADV_RANDOM`, which upstream added on 2026-09-08,
+   and on a cold cache. Re-measured warm it is 1.4x, and the live engine reports 0.44 ms/op in
+   steady state where there is nothing to win. See the correction in FINDINGS.md.
 6. **"Unified" memory is not uniform**: 241 vs 77 vs 59 GB/s on one physical pool.
 7. **Three benchmarking confounds worth ~20 % each** — engram page-cache warmth, a logged-in
    desktop session, and a model router restarting lanes underneath the experiment.
@@ -167,21 +169,26 @@ Related: cuBLAS reaches 205-230 GB/s (~96 % of roofline) at M>=2 but only 163-17
 so **widening the verify batch makes the dense two-thirds of the model cheaper**. Speculation
 pays twice on this hardware: once in tokens per step, once in kernel efficiency.
 
-## 4. The engram gather is a page-fault problem
+## 4. The engram gather: a cold-tail problem, not a steady-state one
 
-The 51 GB n-gram table is mmapped from NVMe and gathered every step. The shipping implementation
-uses `np.memmap` fancy indexing, inline and single-threaded for decode-sized batches, so every
-non-resident row becomes a **serialized synchronous page fault**.
+The 51 GB n-gram table is mmapped from NVMe and gathered every step, inline and
+single-threaded for decode-sized batches, so a non-resident row is a synchronous page fault.
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/figures/engram-gather-dark.svg">
   <img alt="Engram gather strategies" src="docs/figures/engram-gather-light.svg">
 </picture>
 
-Explicit `pread` on 8 threads is **6.7x faster on cold rows** and 0.9 ms slower when everything
-is resident, so the right design is a hybrid: memmap for resident rows, batched `pread` for
-misses. The *transfer* half of the lookup is irrelevant — 25-32 us against 3-40 ms of I/O — so a
-zero-copy GPU gather, which works and is correct, buys nothing.
+**Read that figure with the correction in FINDINGS.md.** It was measured on a cold cache with
+maps that had no `MADV_RANDOM` — advice upstream added on 2026-09-08, specifically to stop
+readahead filling the cache with unused neighbours. Re-measured later the same day with the
+table ~10 % resident, `pread` leads by 1.4x rather than 6.7x, and the production engine's own
+counter reports `gather 0.44 ms/op` in steady state. So this is a **tail** effect on cold
+regions of the table, not a steady-state win, and the recommendation is withdrawn pending a
+proper cold-cache comparison against upstream's current code.
+
+The *transfer* half of the lookup is genuinely irrelevant either way — 25-32 us against
+milliseconds of I/O — so a zero-copy GPU gather, which works and is correct, buys nothing.
 
 ## 5. Two confounds that make cross-time comparison meaningless
 

@@ -38,6 +38,17 @@ def locate(gid):
     return si, meta[si][1] + (gid - starts[si]) * ROW
 
 mms = [np.memmap(p, dtype=np.uint8, mode="r") for p, _, _ in meta]
+# Upstream applies MADV_RANDOM by default (added 2026-09-08): without it the kernel's mmap
+# readahead pulls a window of neighbouring pages around every faulting row and fills the page
+# cache with rows that are never used. A benchmark of the page-fault path that omits this is
+# measuring the wrong thing, so keep a second, advised set of maps for a fair comparison.
+mms_rand = [np.memmap(p, dtype=np.uint8, mode="r") for p, _, _ in meta]
+for _m in mms_rand:
+    try:
+        _m._mmap.madvise(mmap.MADV_RANDOM)
+    except (AttributeError, OSError) as exc:
+        print("MADV_RANDOM unavailable:", exc)
+        break
 fds = [os.open(p, os.O_RDONLY) for p, _, _ in meta]
 try:
     fdd = [os.open(p, os.O_RDONLY | os.O_DIRECT) for p, _, _ in meta]
@@ -55,6 +66,24 @@ def s_memmap(ids, nt):
     def one(g):
         si, o = locate(g); return bytes(mms[si][o:o + ROW])
     return list(pool(nt).map(one, ids))
+
+def s_memmap_rand(ids, nt):
+    """memmap + MADV_RANDOM, i.e. what upstream actually runs since 2026-09-08."""
+    def one(g):
+        si, o = locate(g); return bytes(mms_rand[si][o:o + ROW])
+    return list(pool(nt).map(one, ids))
+
+def s_memmap_inline(ids, nt):
+    """The shipping decode-sized path: MADV_RANDOM, inline, single-threaded, numpy fancy index."""
+    ids_a = np.asarray(ids, dtype=np.int64)
+    shard = np.searchsorted(starts, ids_a, side="right") - 1
+    out = np.empty((ids_a.size, ROW), dtype=np.uint8)
+    for si in np.unique(shard):
+        m = shard == si
+        base = meta[si][1]; local = ids_a[m] - starts[si]
+        idx = (base + local[:, None] * ROW + np.arange(ROW)[None, :]).ravel()
+        out[m] = mms_rand[si][idx].reshape(-1, ROW)
+    return out
 
 def s_pread(ids, nt):
     def one(g):
