@@ -1,0 +1,34 @@
+10 shards, 25.0M rows x 160 B; R=180, 25 steps
+
+=== uniform random rows (worst case), cold ===
+  memmap fancy               t=8    cold  median   40.97 ms  p90   50.13  min   30.17
+  memmap fancy               t=16   cold  median   35.33 ms  p90   49.24  min   28.55
+  memmap fancy               t=32   cold  median   31.38 ms  p90   35.09  min   20.91
+  memmap fancy               t=64   cold  median   28.13 ms  p90   36.10  min   23.17
+  memmap fancy               t=128  cold  median   26.28 ms  p90   31.58  min   20.24
+  pread                      t=8    cold  median    3.92 ms  p90    4.69  min    2.98
+  pread                      t=16   cold  median    5.60 ms  p90    6.66  min    4.66
+  pread                      t=32   cold  median    5.56 ms  p90    6.44  min    4.39
+  pread                      t=64   cold  median    5.42 ms  p90    5.96  min    4.40
+  pread                      t=128  cold  median    5.07 ms  p90    5.94  min    4.59
+  pread                      t=180  cold  median    5.70 ms  p90    6.89  min    4.82
+  pread O_DIRECT             t=32   cold  median    7.32 ms  p90    7.99  min    6.58
+  pread O_DIRECT             t=128  cold  median    7.20 ms  p90    7.58  min    6.77
+  pread coalesced runs       t=32   cold  median    5.87 ms  p90    6.65  min    4.14
+  pread coalesced runs       t=128  cold  median    5.40 ms  p90    6.41  min    4.46
+
+=== zipf-ish rows (80 % from a 1 % hot region), cold ===
+  memmap fancy               t=8    cold  median    8.06 ms  p90   14.46  min    6.00
+  pread                      t=8    cold  median    4.47 ms  p90    5.39  min    4.01
+  memmap fancy               t=32   cold  median    7.41 ms  p90    8.97  min    5.64
+  pread                      t=32   cold  median    4.79 ms  p90    5.62  min    3.81
+  memmap fancy               t=128  cold  median    6.78 ms  p90    8.55  min    5.67
+  pread                      t=128  cold  median    4.73 ms  p90    5.70  min    3.68
+
+=== same row set repeated (fully warm) ===
+  memmap fancy               t=8    warm  median    3.39 ms  p90    4.28  min    2.75
+  pread                      t=8    warm  median    3.98 ms  p90    4.48  min    3.19
+  memmap fancy               t=32   warm  median    3.03 ms  p90    4.18  min    2.00
+  pread                      t=32   warm  median    3.86 ms  p90    5.14  min    2.87
+
+summary: best cold memmap 0.03 ms, best cold pread 0.00 ms
