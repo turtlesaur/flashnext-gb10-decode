@@ -23,16 +23,33 @@ consequence of having their working system to measure, not a criticism of it.
     otherwise silently halves tile sizes on sm_121.
 
   The fp8 side-layer result in this repo is a **measurement of their recipe**, not a new
-  technique. The preparation script and the conversion tool are theirs.
+  technique. The preparation script and the conversion tool are theirs, and their quality
+  evidence for it (an unchanged agentic-tournament score) is stronger than anything measured
+  here.
 
 ## The ideas
 
 - **FR-Spec: Accelerating Large-Vocabulary Language Models via Frequency-Ranked Speculative
-  Sampling** (ACL 2025, arXiv:2502.14856) — the frequency-ranked draft vocabulary. The
-  contribution here is applying it to a model's *native* multi-token-prediction head rather
-  than a separate EAGLE drafter, and the observation about when it pays: in proportion to the
-  output head's share of per-step bytes, which is large for sparse-MoE models and small for
-  dense ones.
+  Sampling** (ACL 2025, arXiv:2502.14856) — the frequency-ranked draft vocabulary.
+
+- **Prior art for this exact model, which this study did not know about while measuring and
+  therefore re-derived.** Both predate the work here and both should be considered the
+  reference implementations:
+  - `blazux/qwen3.8-Flash-DGX` shipped `DRAFT_VOCAB` on **2026-09-08** and made it the
+    default: 65,536 tokens, +20 % decode, identical outputs, with
+    `src/patch_mtp_draft_vocab.py` and a `tools/build_draft_vocab.py` for rebuilding the set.
+    The build measured in this repo is pinned to that tree at 2026-09-06, two days earlier,
+    which is the only reason the baseline still reads the full vocabulary.
+  - `jpezzulli/sglang-rtxpro6000` ("Pennyroyal") ships FR-Spec with a 65,536-token map on
+    RTX PRO 6000 / SM120, reporting +9.7-16.8 % single-request decode, and goes further by
+    quantising the output head itself online.
+
+  The draft-vocabulary number in this repo is therefore an **independent replication**
+  (+19.1 % against their +20 %), not a discovery. What is added is the kernel-level
+  decomposition explaining the size of the effect, evidence that half their vocabulary size is
+  sufficient, and the observation about when the technique pays at all: in proportion to the
+  output head's share of per-step bytes, which is large for sparse-MoE models with native
+  multi-token-prediction heads and small for dense ones.
 - A community prototype of the same idea for a native MTP head in another inference engine
   measured +1.4-3.1 % end-to-end on a dense 27B model. That result is the useful contrast for
   the +19 % measured here, and the reason this repo frames the effect as a byte-ratio argument.

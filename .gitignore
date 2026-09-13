@@ -2,8 +2,6 @@ __pycache__/
 *.pyc
 figpreview.html
 results/*.json
-!results/raw_runs.csv
-!results/README.md
 profiles/
 logs/
 corpus/
