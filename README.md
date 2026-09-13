@@ -34,12 +34,15 @@ What this repo adds that I have not found elsewhere:
    vocabulary is built more robustly than this one, so this is not a clean claim that half of
    *their* set would do.
 3. **The two levers compose additively to within 1.5 %**, measured as a full 2x2 ablation.
-4. **`pread` beats the shipping page-fault gather 6.7x on cold engram rows.** Flash-DGX's own
+4. **The gain is single-stream only** — ~50 % at concurrency 1, ~15 % at concurrency 4-8,
+   because batching already amortises the output head. Both upstream projects report
+   single-request numbers.
+5. **`pread` beats the shipping page-fault gather 6.7x on cold engram rows.** Flash-DGX's own
    documentation notes the I/O mechanism is not specified; this measures it.
-5. **"Unified" memory is not uniform**: 241 vs 77 vs 59 GB/s on one physical pool.
-6. **Two benchmarking confounds worth ~20 % each**, one of which (a logged-in desktop session)
-   I have not seen documented anywhere.
-7. **Negative results**, including a silent failure mode that leaves output correct while
+6. **"Unified" memory is not uniform**: 241 vs 77 vs 59 GB/s on one physical pool.
+7. **Three benchmarking confounds worth ~20 % each** — engram page-cache warmth, a logged-in
+   desktop session, and a model router restarting lanes underneath the experiment.
+8. **Negative results**, including a silent failure mode that leaves output correct while
    quietly destroying acceptance.
 
 ---
@@ -51,14 +54,34 @@ What this repo adds that I have not found elsewhere:
   <img alt="Single-stream throughput by configuration" src="docs/figures/throughput-light.svg">
 </picture>
 
-| config | prose | code | verbatim copy | ms/step (code) |
+**A/B/A validated**, run unattended as baseline -> combined -> baseline on an uncontended box:
+
+| | prose | code | verbatim copy | ms/step (code) |
 |---|---:|---:|---:|---:|
-| no speculation | 15.0 | 15.1 | 15.0 | 66.3 |
-| **baseline** (MTP depth 3, full draft vocabulary) | 20.0 | 30.4 | 35.8 | 106.2 |
-| reduced draft vocabulary (32K) | 24.8 | 36.2 | 43.6 | 86.3 |
-| fp8 side layers | 24.1 | 36.7 | 41.5 | 92.9 |
-| **both** | **30.9** | **45.5** | **52.2** | **72.5** |
-| | **+54.5 %** | **+49.7 %** | **+45.8 %** | **-31.7 %** |
+| baseline (A1) | 23.6 | 35.7 | 41.9 | 90.5 |
+| **reduced draft vocab + fp8 side layers (B)** | **36.9** | **54.5** | **62.2** | **60.5** |
+| baseline again (A2) | 23.6 | 35.8 | 41.9 | 90.2 |
+| **drift between the two baselines** | **0.0 %** | **0.3 %** | **0.0 %** | 0.3 % |
+| **effect** | **+56.4 %** | **+52.4 %** | **+48.4 %** | **-33.0 %** |
+
+The effect is **~175x the drift**. Full 2x2 ablation of the two levers separately, measured in
+an earlier single session, is in [RESULTS.md](RESULTS.md).
+
+### It is a single-stream optimisation
+
+The project's own 8-case, 7-repetition harness, same session:
+
+| | single stream | 4 concurrent | 6 concurrent | 8 concurrent |
+|---|---:|---:|---:|---:|
+| gain | **+45 to +54 %** | +15.9 % | +18.1 % | +14.4 % |
+
+The mechanism is the one the profiler identified. At batch 1 each draft pass is a
+matrix-vector product against the full output head, re-read per draft. With B concurrent
+requests the drafts batch, one head read serves B tokens, and the GEMM leaves cuBLAS's M=1 GEMV
+path for the ~18 % faster M>=2 path — **batching already amortises what the reduced vocabulary
+removes**. Both upstream projects report single-request numbers, so this dependence does not
+seem to be documented. Read it as a latency optimisation for interactive one-user serving, not
+a throughput optimisation for a loaded server.
 
 ## 1. Where the step actually goes
 

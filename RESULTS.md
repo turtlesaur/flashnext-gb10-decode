@@ -1,5 +1,14 @@
 # Results summary
 
+> **Headline, A/B/A validated on an uncontended box:** baseline 35.7 -> **54.5 tok/s** on code
+> (+52.4 %), 23.6 -> **36.9** on prose (+56.4 %). The two baseline runs bracketing the treatment
+> agree to **0.3 %**, so the effect is ~175x the drift. The gain is ~50 % single-stream and
+> ~15 % at concurrency 4-8 — see "single-stream" below.
+>
+> **Attribution:** the reduced draft vocabulary is an independent replication of a feature that
+> [Flash-DGX](https://github.com/blazux/qwen3.8-Flash-DGX) shipped as a default on 2026-09-08
+> and that Pennyroyal also ships. See COMPARISON.md.
+
 All numbers from one NVIDIA GB10 (DGX Spark / GX10, sm_121, 121 GB LPDDR5X unified) serving
 Qwen3.8-Flash-Next-NVFP4 under vLLM 0.1.dev20073, MTP speculative decoding at
 depth 3, greedy, 300 generated tokens, batch 1.

@@ -103,7 +103,7 @@ def fig_step_anatomy(mode):
     o += titleblock(t, "Where a decode step goes",
                     "GPU time per step, paired profiler traces, warm cache. "
                     "One 4-token verify pass plus three 1-token drafts.", W)
-    o += legend(L, 76, [("baseline", t["s1"]), ("with FR-Spec draft head", t["s2"])], t)
+    o += legend(L, 76, [("baseline", t["s1"]), ("with reduced draft vocabulary", t["s2"])], t)
     bh, gap, pair = 17, 2, 8
     y = TOP + 10
     for name, a, b in rows:
@@ -133,16 +133,20 @@ def fig_step_anatomy(mode):
 # --------------------------------------------------------------------------- figure 2
 def fig_ablation(mode):
     t = THEME[mode]
-    W, H = 820, 400
-    L, R, TOP, BOT = 80, 40, 104, 66
+    W, H = 820, 430
+    L, R, TOP, BOT = 80, 40, 124, 66
     plot_h = H - TOP - BOT
     mx = 120.0
-    steps = [("baseline", 0.0, 106.2, "total"), ("FR-Spec\ndraft head", 106.2, 86.3, "drop"),
-             ("+ fp8 side\nlayers", 86.3, 72.5, "drop"), ("measured\ncombined", 0.0, 72.5, "total")]
+    # All four cells measured in ONE session so the decomposition is internally consistent.
+    # (The later A/B/A session re-measured only the endpoints, on a quieter box: 90.3 -> 60.5.)
+    steps = [("baseline", 0.0, 106.2, "total"),
+             ("reduced draft\nvocabulary", 106.2, 86.3, "drop"),
+             ("+ fp8 side\nlayers", 86.3, 72.5, "drop"),
+             ("measured\ncombined", 0.0, 72.5, "total")]
     o = head(W, H, t, "Ablation of step time")
     o += titleblock(t, "The two optimisations compose additively",
-                    "Step time on the code workload. The bars decompose the measured -33.7 ms; "
-                    "measured independently the savings are -19.9 and -13.3 ms, summing to -33.2.",
+                    "Step time on the code workload; all four cells measured in one session. "
+                    "Alone the savings are -19.9 and -13.3 ms, summing to -33.2 against -33.7 together.",
                     W, sub_lines=2)
     n = len(steps)
     slot = (W - L - R) / n
@@ -183,44 +187,41 @@ def fig_ablation(mode):
 
 # --------------------------------------------------------------------------- figure 3
 def fig_throughput(mode):
+    """Every cell measured in the same A/B/A session with the project's own 7-rep harness."""
     t = THEME[mode]
-    W, H = 820, 400
-    L, R, TOP, BOT = 64, 40, 110, 62
-    plot_h = H - TOP - BOT
-    mx = 60.0
-    cfgs = ["baseline", "FR-Spec", "fp8 side layers", "FR-Spec + fp8"]
-    data = {"prose": [20.0, 24.8, 24.1, 30.9], "code": [30.4, 36.2, 36.7, 45.5],
-            "verbatim copy": [35.8, 43.6, 41.5, 52.2]}
-    o = head(W, H, t, "Single-stream throughput by configuration")
-    o += titleblock(t, "Single-stream throughput, tokens per second",
-                    "Paired measurements, same session, warm cache, greedy decoding. "
-                    "Higher is better.", W)
-    o += legend(L, 88, list(zip(cfgs, t["ramp"])), t)
-
-    def ypx(v):
-        return TOP + plot_h * (1 - v / mx)
-
-    for g in range(0, 7):
-        gv = g * 10
-        gy = ypx(gv)
-        o += (f'<line x1="{L:.1f}" y1="{gy:.1f}" x2="{W-R:.1f}" y2="{gy:.1f}" '
-              f'stroke="{t["grid"]}" stroke-width="1"/>')
-        o += txt(L - 12, gy + 4, str(gv), t["muted"], 11.5, "end")
-    slot = (W - L - R) / len(data)
-    bw = (slot - 70) / 4
-    for i, (case, vals) in enumerate(data.items()):
-        base = L + slot * i + 35
-        for j, v in enumerate(vals):
-            x = base + j * (bw + 2)
-            o += rbar_v(x, ypx(v), bw, plot_h * v / mx, t["ramp"][j])
-            o += txt(x + bw / 2, ypx(v) - 8, f"{v:.1f}", t["ink2"], 11.5, "middle")
-        o += txt(L + slot * i + slot / 2, H - 34, case, t["ink"], 13, "middle", "600")
-        gain = 100 * (vals[-1] / vals[0] - 1)
-        o += txt(L + slot * i + slot / 2, H - 16, f"+{gain:.0f}% overall", t["muted"], 11.5,
-                 "middle")
-    o += (f'<line x1="{L:.1f}" y1="{TOP+plot_h:.1f}" x2="{W-R:.1f}" y2="{TOP+plot_h:.1f}" '
-          f'stroke="{t["axis"]}" stroke-width="1"/>')
-    o += txt(L - 12, TOP - 14, "tok/s", t["muted"], 11.5, "end")
+    W, H = 820, 500
+    L, R, TOP, BOT = 150, 80, 110, 58
+    plot = W - L - R
+    mx = 90.0
+    rows = [("prose, 431 tok", 20.1, 30.1), ("prose, 8k ctx", 19.8, 30.4),
+            ("16k context", 19.9, 29.3), ("40k context", 19.1, 28.6),
+            ("verbatim copy", 38.0, 55.0), ("4 concurrent", 51.1, 59.2),
+            ("6 concurrent", 63.1, 74.5), ("8 concurrent", 71.6, 81.9)]
+    o = head(W, H, t, "Throughput, single-stream and concurrent")
+    o += titleblock(t, "The gain is a single-stream effect",
+                    "Aggregate tokens/s, 7 repetitions, median. Batching already amortises the "
+                    "output head, so concurrency keeps far less of it.", W, sub_lines=2)
+    o += legend(L, 92, [("baseline", t["s1"]), ("reduced draft vocab + fp8 side layers", t["s2"])], t)
+    bh, gap = 14, 2
+    y = TOP + 6
+    for g in range(0, 10):
+        gx = L + plot * (g * 10) / mx
+        if g:
+            o += (f'<line x1="{gx:.1f}" y1="{TOP:.1f}" x2="{gx:.1f}" y2="{H-44:.1f}" '
+                  f'stroke="{t["grid"]}" stroke-width="1"/>')
+    for name, a, b in rows:
+        o += txt(L - 12, y + bh + 1, name, t["ink2"], 12, "end")
+        o += rbar_h(L, y, plot * a / mx, bh, t["s1"])
+        o += rbar_h(L, y + bh + gap, plot * b / mx, bh, t["s2"])
+        o += txt(L + plot * b / mx + 8, y + bh * 2 + gap - 4, f"+{100*(b/a-1):.0f}%", t["ink"], 11.5,
+                 "start", "600")
+        y += bh * 2 + gap + 14
+    o += (f'<line x1="{L}" y1="{TOP:.1f}" x2="{L}" y2="{H-44:.1f}" stroke="{t["axis"]}" '
+          f'stroke-width="1"/>')
+    for g in range(0, 10):
+        gx = L + plot * (g * 10) / mx
+        o += txt(gx, H - 26, str(g * 10), t["muted"], 11.5, "middle")
+    o += txt(L + plot / 2, H - 8, "aggregate tokens per second", t["muted"], 12, "middle")
     return o + "</svg>"
 
 

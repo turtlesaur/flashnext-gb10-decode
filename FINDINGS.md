@@ -613,3 +613,57 @@ means the remaining levers can be evaluated independently and their gains summed
 true once a step becomes latency- or launch-bound.
 
 fp8 alone is also the only change so far that *raises* acceptance (3.23 -> 3.41).
+
+---
+
+## 2026-09-13 — A/B/A validation on an uncontended box
+
+Run unattended as baseline -> combined -> baseline, all three in one session with **llama-swap
+stopped** so nothing could start a competing lane. (A first attempt was abandoned: llama-swap
+restarted the production lane underneath the experiment even with zero client traffic in six
+hours.) Each cell warmed with three passes; the third is reported.
+
+| | prose | code | verbatim | ms/step (code) | tokens/step (code) |
+|---|---:|---:|---:|---:|---:|
+| **A1** baseline | 23.6 | 35.7 | 41.9 | 90.5 | 3.23 |
+| **B** reduced draft vocab + fp8 side layers | **36.9** | **54.5** | **62.2** | **60.5** | 3.30 |
+| **A2** baseline | 23.6 | 35.8 | 41.9 | 90.2 | 3.23 |
+| drift `|A1-A2|` | **0.0 %** | **0.3 %** | **0.0 %** | 0.3 % | 0 |
+| effect vs mean baseline | **+56.4 %** | **+52.4 %** | **+48.4 %** | **-33.0 %** | |
+
+**The effect is ~175x the drift.** The two baseline runs that bracket the treatment agree to
+0.3 %, which retires any concern that the result is machine drift.
+
+Note these absolute numbers are *higher* than the earlier paired session (baseline 35.7 vs
+30.4 tok/s on code) because llama-swap was stopped here. Same code, same settings — a third
+environmental variable, and the reason all comparisons must be internal to one session.
+
+### The project's own harness, full suite
+
+`bin/bench`, 8 cases, 7 repetitions, median — same session, same two engines:
+
+| case | baseline | combined | gain |
+|---|---:|---:|---:|
+| prose, 431 tok | 20.1 | 30.1 | +49.8 % |
+| prose, 8k ctx | 19.8 | 30.4 | +53.5 % |
+| 16k context | 19.9 | 29.3 | +47.2 % |
+| 40k context | 19.1 | 28.6 | +49.7 % |
+| verbatim copy | 38.0 | 55.0 | +44.7 % |
+| **4 concurrent** | 51.1 | 59.2 | **+15.9 %** |
+| **6 concurrent** | 63.1 | 74.5 | **+18.1 %** |
+| **8 concurrent** | 71.6 | 81.9 | **+14.4 %** |
+
+**Finding L — this is a single-stream optimisation.** The gain is ~50 % at concurrency 1 and
+collapses to ~15 % at concurrency 4-8, and the mechanism is exactly the one the profiler
+identified. At batch 1 each draft pass is a matrix-vector product against the full 1.27 GB
+output head, and the head is re-read per draft. With B concurrent requests the drafts batch
+together: the same head read serves B tokens, and the GEMM moves off cuBLAS's M=1 GEMV path
+onto the ~18 % faster M>=2 path. Batching already amortises what the reduced vocabulary removes.
+
+Both upstream projects report single-request numbers, so this dependence does not appear to be
+documented. The practical reading: **it is a latency optimisation for interactive, one-user
+serving, not a throughput optimisation for a loaded server** — which is precisely the regime a
+desk-side machine runs in.
+
+It also holds across context length: +47 to +54 % from 431 to 83,078 prompt tokens, so the
+saving is per-step and independent of how much context is already resident.
